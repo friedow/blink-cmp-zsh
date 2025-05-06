@@ -65,7 +65,6 @@ function source:get_completions(context, callback)
 	end
 
 	vim.system(
-		-- TODO: strip the shell prompt from context.line before using it
 		{ "zsh", script_path() .. "/capture.zsh", current_command },
 		nil,
 		function(result)
