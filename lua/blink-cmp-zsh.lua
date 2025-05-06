@@ -12,10 +12,15 @@ function source:enabled()
 	return vim.api.nvim_get_option_value("buftype", { buf = vim.api.nvim_get_current_buf() }) == "terminal"
 end
 
+local function script_path()
+	local str = debug.getinfo(2, "S").source:sub(2)
+	return str:match("(.*/)")
+end
+
 function source:get_completions(context, callback)
 	-- ctx (context) contains the current keyword, cursor position, bufnr, etc.
 
-  vim.print(vim.inspect(context))
+	vim.print(vim.inspect(context))
 
 	if string.len(context.line) == 0 then
 		resolve()
@@ -23,9 +28,8 @@ function source:get_completions(context, callback)
 	end
 
 	vim.system(
-    -- TODO: fix absolute path
-    -- TODO: strip the shell prompt from context.line before using it
-		{ "zsh", "<PATH TO PROJECT>/blink-cmp-zsh/lua/capture.zsh", context.line },
+		-- TODO: strip the shell prompt from context.line before using it
+		{ "zsh", script_path() .. "/capture.zsh", context.line },
 		nil,
 		function(result)
 			if result.code ~= 0 then

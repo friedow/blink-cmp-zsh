@@ -2,7 +2,7 @@
 
 ZSH completion source for blink.cmp
 
-‼️ This project is still in a very early develpment stage. Please don't use this in prod :D. ‼️
+‼️ This project is still in a very early development stage. Please don't use this in prod :D. ‼️
 
 ## Local Development
 
