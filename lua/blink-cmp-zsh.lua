@@ -1,3 +1,5 @@
+--- @module 'blink.cmp'
+
 --- We need to know where prompts end
 --- the most reliable way to get this information
 --- is to listen to terminal escape sequences.
@@ -15,13 +17,12 @@ vim.api.nvim_create_autocmd("TermRequest", {
 	desc = "Mark shell prompts indicated by OSC 133 sequences for navigation",
 	callback = function(args)
 		if string.match(args.data.sequence, "^\027]133;B") then
-			local row, col = unpack(args.data.cursor)
+			local row, col = table.unpack(args.data.cursor)
 			vim.api.nvim_buf_set_extmark(args.buf, nvim_terminal_prompt_ns, row - 1, col, {})
 		end
 	end,
 })
 
---- @module 'blink.cmp'
 --- @class blink.cmp.Source
 local source = {}
 
@@ -35,69 +36,91 @@ function source:enabled()
 	return vim.api.nvim_get_option_value("buftype", { buf = vim.api.nvim_get_current_buf() }) == "terminal"
 end
 
+--- Get the path of the currently executed lua script.
+---
+--- @return string
 local function script_path()
 	local str = debug.getinfo(2, "S").source:sub(2)
 	return str:match("(.*/)")
 end
 
+--- Get the shell command in the current line by removing
+--- the prompt.
+--- We're working exclusively with 1-based indexing in this
+--- function. If you see +1/-1 shinanigans in the code below
+--- this is to account for the neovim api not being consistent
+--- with its 1/0-based indexing.
+---
+--- @param context blink.cmp.Context
+--- @return string|nil
 local function get_current_command(context)
-	local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-	local extmarks = vim.api.nvim_buf_get_extmarks(0, nvim_terminal_prompt_ns, { row - 1, col }, 0, { limit = 1 })
+	vim.print(vim.inspect(vim.api.nvim_win_get_cursor(0)))
+	vim.print(vim.inspect(context.cursor))
+	vim.print(vim.inspect(context.line))
 
-	if #extmarks == 1 then
-		local prompt_end_mark = unpack(extmarks)
-		local cursor_row, cursor_col = unpack(context.cursor)
+	local cursor_row = context.cursor[1]
+	local cursor_col = context.cursor[2] + 1
+	local line = string.sub(context.line, 1, cursor_col - 1)
 
-		if cursor_row - 1 == prompt_end_mark[2] then
-			return string.sub(context.line, prompt_end_mark[3] + 1, string.len(context.line))
-		end
+	local extmarks = vim.api.nvim_buf_get_extmarks(
+		0,
+		nvim_terminal_prompt_ns,
+		{ cursor_row - 1, cursor_col - 1 },
+		{ cursor_row - 1, 0 },
+		{ limit = 1 }
+	)
+
+	--- If we find no mark for the end of the shell prompt we assume
+	--- that the whole line is the current command text.
+	if #extmarks < 1 then
+		return line
 	end
+
+	local prompt_end_mark = extmarks[1]
+	local prompt_end_col = prompt_end_mark[3] + 1
+	return string.sub(line, prompt_end_col, string.len(line))
 end
 
 function source:get_completions(context, callback)
-	-- ctx (context) contains the current keyword, cursor position, bufnr, etc.
-
 	local current_command = get_current_command(context)
+	vim.print(vim.inspect(current_command))
 
-	if current_command == nil or string.len(current_command) == 0 then
-		resolve()
+	if current_command == nil then
+		callback({
+			is_incomplete_forward = true,
+			is_incomplete_backward = true,
+		})
 		return
 	end
 
-	vim.system(
-		{ "zsh", script_path() .. "/capture.zsh", current_command },
-		nil,
-		function(result)
-			if result.code ~= 0 then
-				callback()
-				return
-			end
-
-			local lines = vim.split(result.stdout, "\r\n")
-
-			--- @type lsp.CompletionItem[]
-			local items = {}
-
-			vim.iter(lines):each(function(line)
-				table.insert(items, {
-					label = line,
-					kind = require("blink.cmp.types").CompletionItemKind.Text,
-					insertText = line,
-				})
-			end)
-
+	vim.system({ "zsh", script_path() .. "/capture.zsh", current_command }, nil, function(result)
+		if result.code ~= 0 then
 			callback({
 				is_incomplete_forward = true,
 				is_incomplete_backward = true,
-				items = vim.tbl_values(items),
 			})
+			return
 		end
-	)
-end
 
-function source:execute(ctx, item, callback, default_implementation)
-	default_implementation()
-	callback()
+		local lines = vim.split(result.stdout, "\r\n")
+
+		--- @type lsp.CompletionItem[]
+		local items = {}
+
+		vim.iter(lines):each(function(line)
+			table.insert(items, {
+				label = line,
+				kind = require("blink.cmp.types").CompletionItemKind.Text,
+				insertText = line,
+			})
+		end)
+
+		callback({
+			is_incomplete_forward = true,
+			is_incomplete_backward = true,
+			items = vim.tbl_values(items),
+		})
+	end)
 end
 
 return source
